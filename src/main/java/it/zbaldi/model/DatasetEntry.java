@@ -7,7 +7,13 @@ import lombok.Setter;
 @Getter
 public class DatasetEntry {
 
-    /** Fully qualified path of the class in the project (e.g., src/main/java/com/example/Service.class) */
+    /** Full qualified path of the class */
+    private String fullClassPath;
+
+    /** Relative qualified path of the class */
+    private String relativeClassPath;
+
+    /** Path of the class in the project (e.g., core/example/Service.class), The dataset use this type */
     private String classPath;
 
     /** Identifier or number of the release this measurement belongs to */
@@ -25,9 +31,6 @@ public class DatasetEntry {
     /** Number of attributes (instance fields) declared in the class */
     private int numberOfAttributes;
 
-    /** Cyclomatic complexity of the class (measure of control flow complexity) */
-    private float classCyclomaticComplexity;
-
     /** Number of other classes that call methods of this class (afferent coupling) */
     private int fanIn;
 
@@ -36,6 +39,12 @@ public class DatasetEntry {
 
     /** Coupling Between Objects (CBO - from CK metrics) */
     private int couplingBetweenObjects;
+
+    /** Normalized Lack of Cohesion of Methods (LCOM) */
+    private float normalizedLackOfCohesion;
+
+    /** Response For Class (RFC) */
+    private int responseForClass;
 
     /** Age of the class in number of releases since its initial creation */
     private int creationAge;
