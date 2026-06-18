@@ -10,9 +10,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 @Slf4j
 public class TicketSearcher {
@@ -82,7 +80,6 @@ public class TicketSearcher {
 
                         LocalDate created = LocalDate.parse(fields.getString("created").substring(0, 10));
 
-                        int a = 0;
                         for (int x = 0; x < releaseInfos.size(); x++) {
                             LocalDate releaseDate = releaseInfos.get(x).getDate();
 
@@ -107,16 +104,20 @@ public class TicketSearcher {
                 }
                 startAt += issues.length();
             } while (startAt < total);
-            Set<String> availableVersions = new HashSet<>();
+            fixedBuggyTickets.removeIf(fix -> fix.getFixVersion().equals("NOT FOUND") || fix.getOpeningVersion().equals("NOT FOUND") || fix.getOpeningVersion().equals("DATA MIGRATED"));
+            List<String> availableVersions = new ArrayList<>();
+            releaseInfos.forEach(releaseInfo -> availableVersions.add(releaseInfo.getReleaseName()));
+            fixedBuggyTickets.removeIf(ticket -> (!availableVersions.contains(ticket.getFixVersion())));
+            fixedBuggyTickets.forEach(ticket -> {
 
-            for(ReleaseInfo releaseInfo : releaseInfos){
-                availableVersions.add(releaseInfo.getReleaseName());
-            }
+                if(availableVersions.indexOf(ticket.getAffectedVersion()) > availableVersions.indexOf(ticket.getOpeningVersion())){
+                    ticket.setAffectedVersion("NOT FOUND");
+                }
 
-            fixedBuggyTickets.removeIf(ticket -> (!"NOT FOUND".equals(ticket.getAffectedVersion())
-                            && !availableVersions.contains(ticket.getAffectedVersion()))
-                            || (!"NOT FOUND".equals(ticket.getFixVersion())
-                            && !availableVersions.contains(ticket.getFixVersion())));
+                if(!ticket.getAffectedVersion().equals("NOT FOUND") && !availableVersions.contains(ticket.getAffectedVersion())){
+                    ticket.setAffectedVersion("NOT FOUND");
+                }
+            });
             return fixedBuggyTickets;
 
         }catch (Exception e){

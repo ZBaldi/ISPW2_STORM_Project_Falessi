@@ -1,6 +1,7 @@
 package it.zbaldi.controller;
 
 import it.zbaldi.model.*;
+import it.zbaldi.model.daos.CsvFileDao;
 import it.zbaldi.model.extractors.CkManagerExtractor;
 import it.zbaldi.model.extractors.GitManagerExtractor;
 import it.zbaldi.model.extractors.OtherMetricsExtractor;
@@ -37,7 +38,7 @@ public class ClassAnalyzerController {
      * <p>
      * Errors during the process are caught and logged without interrupting execution.
      */
-    public void executeExtractionProcess(float keepPercentage) {
+    public void executeExtractionProcess() {
 
         Map<Integer, List<DatasetEntry>> datasetEntryMap = new TreeMap<>();
         Path root = Path.of("storm_tags/");
@@ -50,12 +51,14 @@ public class ClassAnalyzerController {
                     continue;
                 }
                 List<DatasetEntry> datasetEntries = populateCkMetrics(directory.toString());
-                datasetEntries = populateCommitMetrics(datasetEntries);
+                populateCommitMetrics(datasetEntries);
                 datasetEntryMap.put(datasetEntries.getFirst().getRelease(), datasetEntries);
             }
             populateOtherMetrics(datasetEntryMap);
-            Map<FixedBuggyTicket, Set<String>> linkedTickets = bindCommitsToTickets(getJiraTickets(keepPercentage));
-            startLabeling(linkedTickets, datasetEntryMap);
+            Map<FixedBuggyTicket, Set<String>> linkedTickets = bindCommitsToTickets(getJiraTickets());
+            startLabeling(linkedTickets, datasetEntryMap, calculateProportion(getJiraTickets()));
+            DatasetDao<Map<Integer, List<DatasetEntry>>> dao = new CsvFileDao();
+            dao.save(datasetEntryMap);
 
         } catch (Exception e) {
             log.error("Error executing extraction process, error message: {}", e.getMessage());
@@ -82,12 +85,11 @@ public class ClassAnalyzerController {
      * to {@link GitManagerExtractor}.
      *
      * @param datasetEntries list of dataset entries to enrich with commit metrics
-     * @return list of dataset entries enriched with Git-based metrics
      */
-    private List<DatasetEntry> populateCommitMetrics(List<DatasetEntry> datasetEntries) {
+    private void populateCommitMetrics(List<DatasetEntry> datasetEntries) {
 
-        MetricExtractor<List<DatasetEntry>, List<DatasetEntry>> metricExtractor = new GitManagerExtractor();
-        return metricExtractor.startAnalysis(datasetEntries);
+        MetricExtractor<List<DatasetEntry>, Void> metricExtractor = new GitManagerExtractor();
+        metricExtractor.startAnalysis(datasetEntries);
     }
 
     /**
@@ -103,19 +105,16 @@ public class ClassAnalyzerController {
     }
 
     /**
-     * Retrieves Jira tickets and filters out invalid ones (missing fix version or migrated data).
+     * Retrieves Jira tickets and saves in cache for proportion.
      */
-    private List<FixedBuggyTicket> getJiraTickets(float keepPercentage) {
+    private List<FixedBuggyTicket> getJiraTickets() {
 
         List<ReleaseInfo> releases = new ReleaseInfoSearcher().getJiraReleases();
-        int sizeToKeep = (int) (releases.size() * keepPercentage);
 
-        if (sizeToKeep > 0 && sizeToKeep < releases.size()) {
-            List<FixedBuggyTicket> tickets = new TicketSearcher().getJiraFixedBuggyTickets(releases.subList(0, sizeToKeep));
-            tickets.removeIf(fix -> fix.getFixVersion().equals("NOT FOUND") || fix.getOpeningVersion().equals("DATA MIGRATED"));
-            return tickets;
+        for(int i = 0; i < releases.size(); i++) {
+            LocalCache.addTotalRelease(releases.get(i).getReleaseName(), i);
         }
-        return Collections.emptyList();
+        return new TicketSearcher().getJiraFixedBuggyTickets(releases);
     }
 
     /**
@@ -140,32 +139,105 @@ public class ClassAnalyzerController {
     }
 
     /**
+     * Calculates the average proportion of affected versions across a set of
+     * fixed buggy tickets using the proportion method.
+     * <p>
+     * Only tickets with a known affected version are considered. Tickets for
+     * which the fix and opening versions coincide are ignored to avoid division
+     * by zero.
+     *
+     * @param tickets the list of fixed buggy tickets
+     * @return the average proportion value computed from the valid tickets
+     */
+    private float calculateProportion(List<FixedBuggyTicket> tickets) {
+
+        int count = 0;
+        float sum = 0;
+        float p;
+
+        for(FixedBuggyTicket ticket : tickets){
+
+            if(!ticket.getAffectedVersion().equals("NOT FOUND")){
+                int fix = LocalCache.getTotalReleaseValue(ticket.getFixVersion());
+                int affected = LocalCache.getTotalReleaseValue(ticket.getAffectedVersion());
+                int opening = LocalCache.getTotalReleaseValue(ticket.getOpeningVersion());
+
+                if(fix-opening == 0){
+                    continue;
+                }
+                p = (float) (fix - affected) /(fix-opening);
+                sum += p;
+                count++;
+            }
+        }
+        sum /= count;
+        return sum ;
+    }
+
+    /**
      * Labels dataset entries as buggy based on the affected and fix versions of each ticket.
      * For each ticket, all dataset entries in the version range [affected, fix) are marked as buggy.
      *
      * @param linkedClassesMap map of tickets associated with their linked classes
      * @param datasetEntryMap  map of release versions to dataset entries
      */
-    private void startLabeling(Map<FixedBuggyTicket, Set<String>> linkedClassesMap, Map<Integer, List<DatasetEntry>> datasetEntryMap){
+    private void startLabeling(Map<FixedBuggyTicket, Set<String>> linkedClassesMap, Map<Integer, List<DatasetEntry>> datasetEntryMap, float proportion){
 
         linkedClassesMap.forEach((key, value) -> {
 
+            Integer start = null;
+            Integer end = null;
+
             if(!key.getAffectedVersion().equals("NOT FOUND")){
+                Integer affected = LocalCache.getReleaseValue(key.getAffectedVersion());
 
-                if ((LocalCache.getReleaseValue(key.getAffectedVersion()) != null) && (LocalCache.getReleaseValue(key.getFixVersion()) != null)) {
-                    int affected = LocalCache.getReleaseValue(key.getAffectedVersion());
-                    int fix = LocalCache.getReleaseValue(key.getFixVersion());
-
-                    for (; affected < fix; affected++) {
-                        List<DatasetEntry> datasetEntries = datasetEntryMap.get(affected);
-                        datasetEntries.forEach(datasetEntry -> {
-                            datasetEntry.setBuggy(true);
-                        });
-                    }
+                if(affected != null){  //I'm not over x %
+                    start = affected;
+                    Integer fix = LocalCache.getReleaseValue(key.getFixVersion());
+                    end = Objects.requireNonNullElseGet(fix, datasetEntryMap::size);
                 }
             }
             else{
-                //apply proportion
+
+                Integer fix = LocalCache.getTotalReleaseValue(key.getFixVersion());
+                Integer opening = LocalCache.getTotalReleaseValue(key.getOpeningVersion());
+
+                if(fix != null && opening != null){
+                    start = (int) (fix - (fix-opening) * proportion);
+
+                    if(start > datasetEntryMap.size()){
+                        start = null;
+                    }
+                    else if(start <= 0){
+                        start = 1;
+                    }
+                    end = Objects.requireNonNullElseGet(LocalCache.getReleaseValue(key.getFixVersion()), datasetEntryMap::size);
+                }
+            }
+
+            if(start != null){
+
+                if (start.intValue() == end.intValue()) {
+                    List<DatasetEntry> datasetEntries = datasetEntryMap.get(start);
+                    datasetEntries.forEach(e -> {
+
+                        if (value.contains(e.getClassPath())) {
+                            e.setBuggy(true);
+                        }
+                    });
+                }
+                else {
+
+                    for (int i = start; i < end; i++) {
+                        List<DatasetEntry> datasetEntries = datasetEntryMap.get(i);
+                        datasetEntries.forEach(e -> {
+
+                            if (value.contains(e.getClassPath())) {
+                                e.setBuggy(true);
+                            }
+                        });
+                    }
+                }
             }
         });
     }

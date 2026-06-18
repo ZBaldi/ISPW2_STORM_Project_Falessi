@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Set;
 
 @Slf4j
-public class GitManagerExtractor implements MetricExtractor<List<DatasetEntry>, List<DatasetEntry>> {
+public class GitManagerExtractor implements MetricExtractor<List<DatasetEntry>, Void> {
 
     /**
      * Performs static analysis on a list of dataset entries by extracting Git-based evolution metrics
@@ -40,7 +40,7 @@ public class GitManagerExtractor implements MetricExtractor<List<DatasetEntry>, 
      * @return the same list of dataset entries enriched with computed metrics
      */
     @Override
-    public List<DatasetEntry> startAnalysis(List<DatasetEntry> datasetEntries) {
+    public Void startAnalysis(List<DatasetEntry> datasetEntries) {
 
         String directory = datasetEntries.getFirst().getRelativeClassPath();
         File repoDir = new File(buildRepositoryPath(directory));
@@ -63,7 +63,7 @@ public class GitManagerExtractor implements MetricExtractor<List<DatasetEntry>, 
         } catch (Exception e) {
             log.error("Error extracting commit metrics");
         }
-        return datasetEntries;
+        return null;
     }
 
     /**
