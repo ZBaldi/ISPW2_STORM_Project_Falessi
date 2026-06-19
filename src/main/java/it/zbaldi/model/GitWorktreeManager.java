@@ -16,7 +16,7 @@ import java.util.Set;
 public class GitWorktreeManager {
 
     /** Git repository URL of Apache Storm. */
-    private final String URL = "https://github.com/apache/storm.git";
+    private static final String URL = "https://github.com/apache/storm.git";
 
     /** Local directory name used for cloning the repository. */
     private final String PROJECT_NAME = "storm";
