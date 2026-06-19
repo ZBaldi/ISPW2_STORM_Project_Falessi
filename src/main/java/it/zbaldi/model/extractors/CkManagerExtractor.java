@@ -12,7 +12,9 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.reflections.Reflections.log;
 
@@ -27,12 +29,13 @@ public class CkManagerExtractor implements MetricExtractor<String, List<DatasetE
     @Override
     public List<DatasetEntry> startAnalysis(String pathTag) {
 
-        List<DatasetEntry> datasetEntries = new ArrayList<>();
+        Map<String, DatasetEntry> datasetMap = new HashMap<>();
         String marker = pathTag + "\\";
 
         new CK().calculate(pathTag, result -> {
-            log.info("Setting Ck Metrics");
-            DatasetEntry datasetEntry = new DatasetEntry();
+            String classPath = extractClassPath(result, marker);
+            log.info("Setting Ck Metrics For: {}", classPath);
+            DatasetEntry datasetEntry = datasetMap.computeIfAbsent(classPath, k -> new DatasetEntry());
             setClassPath(datasetEntry, result, marker);
             setRelease(datasetEntry, pathTag);
             setLinesOfCodeAndCommentDensity(datasetEntry);
@@ -43,10 +46,9 @@ public class CkManagerExtractor implements MetricExtractor<String, List<DatasetE
             setCouplingBetweenObjects(datasetEntry, result);
             setNormalizedLackOfCohesion(datasetEntry, result);
             setResponseForClass(datasetEntry, result);
-            datasetEntries.add(datasetEntry);
         });
-        log.info("Finished Setting Ck Metrics");
-        return datasetEntries;
+        log.info("Finished Setting Ck Metrics for: {}", pathTag);
+        return new ArrayList<>(datasetMap.values());
     }
 
     /**
@@ -64,6 +66,20 @@ public class CkManagerExtractor implements MetricExtractor<String, List<DatasetE
         classPath = classPath.substring(index + marker.length());
         datasetEntry.setClassPath(classPath);
         datasetEntry.setRelativeClassPath(marker + classPath);
+    }
+
+    /**
+     * Extracts the relative class path from the full file path using the given marker.
+     *
+     * @param result CK analysis result containing the full file path
+     * @param marker reference string used to split the path
+     * @return relative class path after the marker
+     */
+    private String extractClassPath(CKClassResult result, String marker) {
+
+        String classPath = result.getFile();
+        int index = classPath.indexOf(marker);
+        return classPath.substring(index + marker.length());
     }
 
     /**
